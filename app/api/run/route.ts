@@ -5,7 +5,18 @@ import { analyzeChunks } from "@/lib/analyze";
 import { generatePattern } from "@/lib/localAnalysis";
 import { mergeChunkResults } from "@/lib/report";
 import { ApiResponse } from "@/lib/types";
-import { profiles, ProfileKey } from "@/config/profiles";
+import { ProfileKey } from "@/config/profiles";
+
+// 프로필 설정을 런타임에 읽기
+function getProfile(profileKey: ProfileKey) {
+  const envPrefix = profileKey.toUpperCase();
+  return {
+    notionToken: process.env[`${envPrefix}_NOTION_TOKEN`],
+    notionDataSourceId: process.env[`${envPrefix}_NOTION_DATA_SOURCE_ID`],
+    propertyName: process.env[`${envPrefix}_PROPERTY_NAME`],
+    tagPropertyName: process.env[`${envPrefix}_TAG_PROPERTY_NAME`],
+  };
+}
 
 const DEFAULT_PERIOD_DAYS = parseInt(process.env.DEFAULT_PERIOD_DAYS || "7", 10);
 
@@ -48,14 +59,28 @@ export async function POST(request: NextRequest) {
     const to = searchParams.get("to");
     const profileKey = (searchParams.get("profile") || "yoyo") as ProfileKey;
 
-    // 프로필 설정 확인
-    const profile = profiles[profileKey];
-    if (!profile?.notionToken || !profile?.notionDataSourceId || !profile?.propertyName) {
+    // 프로필 설정 확인 (런타임에 환경 변수 읽기)
+    const profile = getProfile(profileKey);
+    
+    // 디버깅: 환경 변수 확인 (프로덕션에서는 로그만 출력)
+    console.log(`[Profile ${profileKey}] Env check:`, {
+      hasToken: !!profile.notionToken,
+      hasDataSourceId: !!profile.notionDataSourceId,
+      hasPropertyName: !!profile.propertyName,
+      envKeys: Object.keys(process.env).filter(k => k.includes(profileKey.toUpperCase())),
+    });
+    
+    const missingFields: string[] = [];
+    if (!profile.notionToken) missingFields.push("notionToken");
+    if (!profile.notionDataSourceId) missingFields.push("notionDataSourceId");
+    if (!profile.propertyName) missingFields.push("propertyName");
+    
+    if (missingFields.length > 0) {
       const response: ApiResponse = {
         status: "error",
         type: "server_error",
-        message: "프로필 설정이 올바르지 않습니다. 서버 환경 변수를 확인하세요.",
-        detail: `Profile: ${profileKey}`,
+        message: `프로필 설정이 올바르지 않습니다. 서버 환경 변수를 확인하세요. (누락: ${missingFields.join(", ")})`,
+        detail: `Profile: ${profileKey}, Missing: ${missingFields.join(", ")}, Env keys found: ${Object.keys(process.env).filter(k => k.includes(profileKey.toUpperCase())).join(", ")}`,
       };
       return NextResponse.json(response, { status: 200 });
     }
